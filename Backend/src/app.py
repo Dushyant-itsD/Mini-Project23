@@ -5,116 +5,143 @@ from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from datetime import timedelta
+import logging
 
+# Initialize Flask app
 app = Flask(__name__)
+
+# MongoDB Configuration
 app.config['MONGO_URI'] = 'mongodb://localhost:27017/Car_rental'
 mongo = PyMongo(app)
-CORS(app)
 db = mongo.db.users
 
-# Configure JWT
+# Enable CORS
+CORS(app)
+
+# JWT Configuration
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'super-secret-key')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=1)
 jwt = JWTManager(app)
 
+# Configure Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+### User Management Routes
+
 @app.route("/users", methods=['POST'])
 def create_user():
-    user_data = request.json
-    print(user_data)  # Print received user data for debugging
-
+    """
+    Register a new user.
+    """
     try:
-        hashed_password = generate_password_hash(user_data['password'])
-        new_user = {
-            "fullName": user_data['fullName'],
-            "email": user_data['email'],
-            "Contact": user_data['Contact'],
-            "current_location": user_data['current_location'],
-            "password": hashed_password,
-            "avatarUrl": "",
-        }
+        user_data = request.json
+        if db.find_one({"email": user_data['email']}):
+            return jsonify({"error": "Email already exists"}), 400
 
-        result = db.insert_one(new_user)
-        print(f"New user inserted with ID: {result.inserted_id}")  # Debug to see if insertion is successful
+        # Hash the password and save the user
+        user_data['password'] = generate_password_hash(user_data['password'])
+        user_data['avatarUrl'] = user_data.get('avatarUrl', '')
+        result = db.insert_one(user_data)
+
+        logger.info(f"User registered with ID: {result.inserted_id}")
         return jsonify({"message": "User registered successfully"}), 201
     except Exception as e:
-        print(f"Error: {e}")  # Print any error
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error registering user: {str(e)}")
+        return jsonify({"error": "Failed to register user"}), 500
 
 
 @app.route('/user/<id>', methods=['GET'])
 def get_user(id):
-    user = db.find_one({"_id": ObjectId(id)}, {"_id": False, "password": False})
-    if user:
-        return jsonify(user)
-    return jsonify({"message": "User not found"}), 404
+    """
+    Retrieve user details by ID.
+    """
+    try:
+        user = db.find_one({"_id": ObjectId(id)}, {"_id": False, "password": False})
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+        return jsonify(user), 200
+    except Exception as e:
+        logger.error(f"Error fetching user: {str(e)}")
+        return jsonify({"error": "Failed to retrieve user"}), 500
+
 
 @app.route('/user/<id>', methods=['PUT'])
 def update_user(id):
-    user_data = request.json
-    hashed_password = generate_password_hash(user_data['password'])
-    db.update_one({'_id': ObjectId(id)}, {'$set': {
-        "fullName": user_data['fullName'],
-        "email": user_data['email'],
-        "contact": user_data['contact'],
-        "current_location": user_data['current_location'],
-        "password": hashed_password,
-        "avatarUrl": "",
-    }})
-    return jsonify({'message': "User updated successfully"})
+    """
+    Update user details by ID.
+    """
+    try:
+        user_data = request.json
+        if 'password' in user_data:
+            user_data['password'] = generate_password_hash(user_data['password'])
+        db.update_one({'_id': ObjectId(id)}, {'$set': user_data})
+
+        logger.info(f"User {id} updated successfully")
+        return jsonify({'message': "User updated successfully"}), 200
+    except Exception as e:
+        logger.error(f"Error updating user: {str(e)}")
+        return jsonify({"error": "Failed to update user"}), 500
+
+
+### Authentication Routes
+import json
 
 @app.route('/user/login', methods=['POST'])
 def login_user():
+    """
+    Authenticate a user and generate a JWT token.
+    """
     try:
         user_data = request.json
-        email = user_data['email']
-        password = user_data['password']
+        email = user_data.get('email')
+        password = user_data.get('password')
 
-        
+        if not email or not password:
+            return jsonify({"error": "Email and password are required"}), 400
+
+        # Fetch user from database
         user = db.find_one({"email": email})
-
         if not user or not check_password_hash(user['password'], password):
+            logger.warning(f"Invalid login attempt for email: {email}")
             return jsonify({"error": "Invalid email or password"}), 401
 
-        
-        access_token = create_access_token(identity={"email": email, "fullName": user['fullName']})
+        # Generate JWT token with serialized identity
+        identity = json.dumps({
+            "id": str(user['_id']),
+            "fullName": user['fullName'],
+            "email": user['email']
+        })
+        access_token = create_access_token(identity=identity)
 
+        logger.info(f"User {email} logged in successfully")
         return jsonify({"message": "Login successful", "access_token": access_token}), 200
-
     except Exception as e:
-        
-        return jsonify({"error": str(e)}), 400
+        logger.error(f"Error during login: {str(e)}")
+        return jsonify({"error": "Failed to log in"}), 500
+
 
 @app.route('/user/profile', methods=['GET'])
 @jwt_required()
 def profile():
+    
     try:
-        current_user = get_jwt_identity()
-        current_user_email = current_user['email']
-        print("Current User:", current_user)  # Debug print to check the JWT identity
-        
-        # Fetch user from the database
-        user = db.find_one({"email": current_user_email}, {"_id": False, "password": False})
-        print("User Found:", user)  # Debug print to see the user data
-        
-        if user:
-            return jsonify({
-                "message": "Access to profile",
-                "user": {
-                    "fullName": user['fullName'],
-                    "email": user['email'],
-                    "contact": user['contact'],
-                    "current_location": user['current_location'],
-                    "avatarUrl": "",
-                }
-            }), 200
-        else:
-            return jsonify({"error": "User not found"}), 404
+        # Parse the serialized identity
+        current_user = json.loads(get_jwt_identity())
+        if not current_user:
+            return jsonify({"error": "Unauthorized access"}), 401
 
+        return jsonify({
+            "message": "Profile retrieved successfully",
+            "user": current_user
+        }), 200
     except Exception as e:
-        print(f"Error: {e}")  # Debug print to check for any exceptions
-        return jsonify({"error": "An error occurred while fetching the profile. Please try again later."}), 500
+        logger.error(f"Error fetching profile: {str(e)}")
+        return jsonify({"error": "Failed to fetch profile"}), 500
 
 
+
+### Entry Point
 
 if __name__ == '__main__':
     app.run(debug=True)

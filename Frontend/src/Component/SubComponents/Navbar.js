@@ -15,13 +15,13 @@ function classNames(...classes) {
 
 export default function Example() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-
+  const [currentUser, setCurrentUser] = useState(null);
   useEffect(() => {
     const fetchProfile = async () => {
       try {
         const token = localStorage.getItem('access_token');
         if (!token) throw new Error('No token available');
-
+        console.log(token)
         const response = await fetch('http://localhost:5000/user/profile', {
           headers: {
             'Content-Type': 'application/json',
@@ -31,6 +31,8 @@ export default function Example() {
 
         if (!response.ok) throw new Error('Failed to fetch profile');
         const data = await response.json();
+        setCurrentUser(data.user);
+        console.log(data)
         // Handle profile data as needed
         setIsLoggedIn(true);
       } catch (error) {
@@ -41,6 +43,8 @@ export default function Example() {
 
     fetchProfile();
   }, []);
+
+  const firstLetter = currentUser?.fullName?.charAt(0).toUpperCase() || "";
 
   const logout = () => {
     localStorage.removeItem('access_token');
@@ -88,11 +92,11 @@ export default function Example() {
             {!isLoggedIn ? (
               <ul className="flex space-x-4">
                 <li>
-                  
-                 < NavLink to="/login" activeClassName="active" className='text-gray-300 hover:bg-gray-700 hover:text-white rounded-md px-3 py-2 text-sm font-medium'>Login</NavLink>
+
+                  < NavLink to="/login" activeClassName="active" className='text-gray-300 hover:bg-gray-700 hover:text-white rounded-md px-3 py-2 text-sm font-medium'>Login</NavLink>
                 </li>
                 <li>
-                  
+
                   <NavLink to="/register" activeClassName="active" className='text-gray-300 hover:bg-gray-700 hover:text-white rounded-md px-3 py-2 text-sm font-medium'>Register</NavLink>
                 </li>
               </ul>
@@ -107,11 +111,11 @@ export default function Example() {
                 {/* Profile dropdown */}
                 <Menu as="div" className="relative ml-3">
                   <MenuButton className="flex rounded-full bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-gray-800">
-                    <img
-                      className="h-8 w-8 rounded-full"
-                      src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-                      alt=""
-                    />
+
+                    <div className="bg-blue-500 text-white rounded-full h-8 w-8 flex items-center justify-center">
+                      {firstLetter}
+                    </div>
+
                   </MenuButton>
                   <MenuItems className="absolute right-0 mt-2 w-48 origin-top-right bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
                     <MenuItem>
